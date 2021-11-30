@@ -437,4 +437,25 @@ public class LogicalReplicationITest extends LogicalReplicationITestCase {
             " JOIN pg_class r ON sr.srrelid = r.oid");
         assertThat(printedTable(res.rows()), is("sub1| t1| r| NULL\n"));
     }
+
+    @Test
+    public void test_write_to_subscribed_table_is_allowed_after_dropping_subscription() throws Exception {
+        executeOnPublisher("CREATE TABLE doc.t1 (id INT) WITH(" +
+            defaultTableSettings() +
+            ")");
+        executeOnPublisher("INSERT INTO doc.t1 (id) VALUES (1), (2)");
+        createPublication("pub1", false, List.of("doc.t1"));
+        createSubscription("sub1", "pub1");
+
+        assertThrowsMatches(
+            () -> executeOnSubscriber("INSERT INTO doc.t1 (id) VALUES(3)"),
+            OperationOnInaccessibleRelationException.class,
+            "The relation \"doc.t1\" doesn't support or allow INSERT operations."
+        );
+
+        executeOnSubscriber("DROP SUBSCRIPTION sub1 ");
+
+        var response = executeOnSubscriber("INSERT INTO doc.t1 (id) VALUES(3)");
+        assertThat(response.rowCount(), is(1L));
+    }
 }
