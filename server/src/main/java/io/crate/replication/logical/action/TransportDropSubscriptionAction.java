@@ -21,22 +21,35 @@
 
 package io.crate.replication.logical.action;
 
+import io.crate.common.unit.TimeValue;
 import io.crate.execution.ddl.AbstractDDLTransportAction;
 import io.crate.metadata.cluster.DDLClusterStateTaskExecutor;
 import io.crate.replication.logical.exceptions.SubscriptionUnknownException;
 import io.crate.replication.logical.metadata.SubscriptionsMetadata;
+import org.elasticsearch.Version;
+import org.elasticsearch.action.ActionListener;
+import org.elasticsearch.action.admin.cluster.settings.ClusterUpdateSettingsResponse;
 import org.elasticsearch.action.support.master.AcknowledgedResponse;
-import org.elasticsearch.cluster.ClusterState;
-import org.elasticsearch.cluster.ClusterStateTaskExecutor;
+import org.elasticsearch.cluster.*;
+import org.elasticsearch.cluster.ack.AckedRequest;
 import org.elasticsearch.cluster.block.ClusterBlockException;
 import org.elasticsearch.cluster.block.ClusterBlockLevel;
 import org.elasticsearch.cluster.metadata.IndexNameExpressionResolver;
 import org.elasticsearch.cluster.metadata.Metadata;
+import org.elasticsearch.cluster.node.DiscoveryNode;
 import org.elasticsearch.cluster.service.ClusterService;
+import org.elasticsearch.common.Priority;
 import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.common.inject.Singleton;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.transport.TransportService;
+
+import javax.annotation.Nullable;
+
+import java.util.List;
+import java.util.function.Function;
+
+import static org.elasticsearch.action.support.master.MasterNodeRequest.DEFAULT_MASTER_NODE_TIMEOUT;
 
 @Singleton
 public class TransportDropSubscriptionAction extends AbstractDDLTransportAction<DropSubscriptionRequest, AcknowledgedResponse> {
@@ -57,6 +70,50 @@ public class TransportDropSubscriptionAction extends AbstractDDLTransportAction<
             AcknowledgedResponse::new,
             AcknowledgedResponse::new,
             "drop-subscription");
+    }
+
+    @Override
+    protected void masterOperation(DropSubscriptionRequest request,
+                                   ClusterState state,
+                                   ActionListener<AcknowledgedResponse> listener) throws Exception {
+
+        Function<ClusterState, ClusterState> closeSubscriptionIndices = curState -> {
+            return curState;
+            //TODO Apply all relevant changes from CloseTableClusterStateTaskExecutor?
+        };
+
+        Function<ClusterState, ClusterState> removeSubscriptionSetting = curState -> {
+            return curState;
+            // TODO DROP setting
+        };
+
+        Function<ClusterState, ClusterState> openSubscriptionIndices = curState -> {
+            return curState;
+            //TODO Apply all relevant changes from OpenTableClusterStateTaskExecutor?
+        };
+
+        List<AckedClusterStateUpdateTaskChain.ChainableTask> tasks = List.of(
+            new AckedClusterStateUpdateTaskChain.ChainableTask(
+                closeSubscriptionIndices,
+                "Please run command DROP SUBSCRIPTION again",
+                "close-subscription-indices"
+            ),
+            new AckedClusterStateUpdateTaskChain.ChainableTask(
+                removeSubscriptionSetting,
+                "Please run command DROP SUBSCRIPTION again",
+                "remove-subscription-setting"
+            ),
+            new AckedClusterStateUpdateTaskChain.ChainableTask(
+                openSubscriptionIndices,
+                "Please run command ALTER TABLE OPEN for subscribed tables",
+                "open-subscription-indices"
+            )
+        );
+
+        AckedClusterStateUpdateTaskChain ackedClusterStateUpdateTaskChain =
+            new AckedClusterStateUpdateTaskChain(tasks, clusterService, listener, request, Priority.HIGH);
+
+        ackedClusterStateUpdateTaskChain.startTaskChain();
     }
 
     @Override
