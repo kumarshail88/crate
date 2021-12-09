@@ -35,6 +35,7 @@ import org.elasticsearch.common.settings.Settings;
 
 import javax.annotation.Nullable;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -69,6 +70,14 @@ public abstract class AbstractOpenCloseTableClusterStateTaskExecutor extends DDL
         }
     }
 
+    public record OpenCloseTable(RelationName relationName,
+                                 @Nullable String partitionIndexName) {
+
+        public OpenCloseTable(RelationName relationName, @Nullable String partitionIndexName) {
+            this.relationName = relationName;
+            this.partitionIndexName = partitionIndexName;
+        }
+    }
 
     private final IndexNameExpressionResolver indexNameExpressionResolver;
     final AllocationService allocationService;
@@ -82,7 +91,7 @@ public abstract class AbstractOpenCloseTableClusterStateTaskExecutor extends DDL
         this.ddlClusterStateService = ddlClusterStateService;
     }
 
-    protected Context prepare(ClusterState currentState, OpenCloseTableOrPartitionRequest request) {
+    protected Context prepare(ClusterState currentState, List<OpenCloseTable> tablesToOpen) {
         RelationName relationName = request.tableIdent();
         String partitionIndexName = request.partitionIndexName();
         Metadata metadata = currentState.metadata();
