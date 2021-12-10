@@ -865,19 +865,20 @@ public class CopyIntegrationTest extends SQLHttpIntegrationTest {
 
         execute("CREATE TABLE t (a int)");
         execute(
-            "COPY t FROM ? WITH (bulk_size = 1, fail_fast = false, shared = true)",
+            "COPY t FROM ? WITH (bulk_size = 1, fail_fast = false, shared = true)", // fail_fast = false
             new Object[]{target.toUri().toString() + "*"});
         refresh();
         execute("select * from t");
         assertThat(response.rowCount(), is(400L));
 
+        execute("delete from t");
+        refresh();
+
         int maxTry = 100;
         while (maxTry-- > 0) {
-            execute("drop table if exists t");
-            execute("CREATE TABLE t (a int)");
             try {
                 execute(
-                    "COPY t FROM ? WITH (bulk_size = 1, fail_fast = true, shared = true)",
+                    "COPY t FROM ? WITH (bulk_size = 1, fail_fast = true, shared = true)", // fail_fast = true
                     new Object[]{target.toUri().toString() + "*"});
                 fail();
             } catch (Exception e) {
@@ -888,7 +889,7 @@ public class CopyIntegrationTest extends SQLHttpIntegrationTest {
             }
             refresh();
             execute("select * from t");
-            if (response.rowCount() < 400L) {
+            if (response.rowCount() < 400L * (100 - maxTry)) {
                 return;
             }
         }
@@ -915,10 +916,11 @@ public class CopyIntegrationTest extends SQLHttpIntegrationTest {
         execute("select * from t");
         assertThat(response.rowCount(), is(400L * cluster().numDataNodes()));
 
+        execute("delete from t");
+        refresh();
+
         int maxTry = 100;
         while (maxTry-- > 0) {
-            execute("drop table if exists t");
-            execute("CREATE TABLE t (a int)");
             try {
                 execute(
                     "COPY t FROM ? WITH (bulk_size = 1, fail_fast = true, shared = false)",
@@ -932,7 +934,7 @@ public class CopyIntegrationTest extends SQLHttpIntegrationTest {
             }
             refresh();
             execute("select * from t");
-            if (response.rowCount() < 400L * cluster().numDataNodes()) {
+            if (response.rowCount() < (400L * cluster().numDataNodes()) * (100 - maxTry)) {
                 return;
             }
         }
