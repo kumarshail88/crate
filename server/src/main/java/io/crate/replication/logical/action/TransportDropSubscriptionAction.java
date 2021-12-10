@@ -48,6 +48,7 @@ import org.elasticsearch.cluster.block.ClusterBlockException;
 import org.elasticsearch.cluster.block.ClusterBlockLevel;
 import org.elasticsearch.cluster.metadata.IndexMetadata;
 import org.elasticsearch.cluster.metadata.IndexNameExpressionResolver;
+import org.elasticsearch.cluster.metadata.IndexTemplateMetadata;
 import org.elasticsearch.cluster.metadata.Metadata;
 import org.elasticsearch.cluster.node.DiscoveryNode;
 import org.elasticsearch.cluster.service.ClusterService;
@@ -292,15 +293,19 @@ public class TransportDropSubscriptionAction extends TransportMasterNodeAction<D
     }
 
     private void removeSubscriptionSetting(List<IndexMetadata> subscriptionIndices, Metadata.Builder mdBuilder) {
-        for (IndexMetadata indexMetadata: subscriptionIndices) {
+        for (int i = 0;i < subscriptionIndices.size(); i++) {
+            var indexMetadata = subscriptionIndices.get(i);
             var settingsBuilder = Settings.builder().put(indexMetadata.getSettings());
             settingsBuilder.remove(REPLICATION_SUBSCRIPTION_NAME.getKey());
-            mdBuilder.put(
-                IndexMetadata
-                    .builder(indexMetadata)
-                    .settingsVersion(1 + indexMetadata.getSettingsVersion())
-                    .settings(settingsBuilder)
-            );
+            IndexMetadata.Builder builder = IndexMetadata
+                .builder(indexMetadata)
+                .settingsVersion(1 + indexMetadata.getSettingsVersion())
+                .settings(settingsBuilder);
+            subscriptionIndices.set(i, builder.build());
+            // Important, need to update subscriptionIndices so that setting removal is visible for the next step.
+            // Enhanced loop not used because it doesnt see reference update
+            mdBuilder.put(indexMetadata, true);
+
         }
     }
 
