@@ -22,6 +22,7 @@
 package io.crate.integrationtests;
 
 import com.carrotsearch.randomizedtesting.LifecycleScope;
+import com.carrotsearch.randomizedtesting.annotations.Repeat;
 import io.crate.execution.engine.collect.files.FileReadingIterator;
 import io.crate.execution.engine.collect.sources.FileCollectSource;
 import io.crate.testing.SQLResponse;
@@ -956,7 +957,7 @@ public class CopyIntegrationTest extends SQLHttpIntegrationTest {
         return null;
     }
 
-    @AwaitsFix(bugUrl = "https://github.com/crate/crate/issues/11956")
+    @Repeat(iterations = 100)
     @Test
     public void test_copy_from_with_fail_fast_property_can_kill_all_nodes_with_failure_from_single_node() throws Exception {
 
