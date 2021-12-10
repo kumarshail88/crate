@@ -32,6 +32,8 @@ import io.crate.metadata.cluster.AbstractOpenCloseTableClusterStateTaskExecutor;
 import io.crate.metadata.cluster.DDLClusterStateTaskExecutor;
 import io.crate.metadata.cluster.OpenTableClusterStateTaskExecutor;
 import io.crate.metadata.doc.DocTableInfo;
+import io.crate.metadata.table.Operation;
+import io.crate.metadata.table.SchemaInfo;
 import io.crate.replication.logical.exceptions.SubscriptionAlreadyExistsException;
 import io.crate.replication.logical.exceptions.SubscriptionUnknownException;
 import io.crate.replication.logical.metadata.Subscription;
@@ -114,7 +116,7 @@ public class TransportDropSubscriptionAction extends TransportMasterNodeAction<D
 
         submitCloseSubscriptionsTablesTask(openCloseTables)
             .thenCompose(res -> submitDropSubscriptionTask(request.name(), request.ifExists(), subscriptionIndices))
-            .thenCompose(res -> submitOpenSubscriptionsTablesTask(openCloseTables))
+            .thenCompose(res -> submitOpenSubscriptionsTablesTask(openCloseTables, subscriptionIndices))
             .whenComplete(
                 (ignore, err) -> {
                     if (err == null) {
@@ -229,7 +231,7 @@ public class TransportDropSubscriptionAction extends TransportMasterNodeAction<D
      * Opens tables after removing replication setting
      * and consequently updates DocTableInfo-s with the normal engine and makes tables writable.
      */
-    private CompletableFuture<Void> submitOpenSubscriptionsTablesTask(List<OpenCloseTable> openCloseTables) {
+    private CompletableFuture<Void> submitOpenSubscriptionsTablesTask(List<OpenCloseTable> openCloseTables, List<IndexMetadata> subscriptionIndices) {
         var future = new CompletableFuture<Void>();
 
         // Check if we're still the elected master before sending third update task
@@ -237,12 +239,14 @@ public class TransportDropSubscriptionAction extends TransportMasterNodeAction<D
             logger.error("Couldn't execute task 'drop-sub-close-tables'. Please run command DROP SUBSCRIPTION again.");
             future.completeExceptionally(new IllegalStateException("Master was re-elected, cannot execute 'drop-sub-close-tables'"));
         }
+
+
         clusterService.submitStateUpdateTask(
             "drop-sub-open-tables",
             new ClusterStateUpdateTask() {
                 @Override
                 public ClusterState execute(ClusterState currentState) {
-                    return openTableClusterStateTaskExecutor.openTables(openCloseTables, currentState);
+                    return openTableClusterStateTaskExecutor.openTables(openCloseTables, subscriptionIndices, currentState);
                 }
 
                 @Override
