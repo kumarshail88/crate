@@ -21,36 +21,24 @@
 
 package io.crate.replication.logical.action;
 
-import io.crate.common.collections.Tuple;
-import io.crate.common.unit.TimeValue;
+import io.crate.action.FutureActionListener;
 import io.crate.exceptions.Exceptions;
-import io.crate.execution.ddl.AbstractDDLTransportAction;
+import io.crate.execution.ddl.tables.TransportCloseTable;
 import io.crate.execution.engine.collect.sources.InformationSchemaIterables;
-import io.crate.metadata.PartitionName;
 import io.crate.metadata.Schemas;
-import io.crate.metadata.cluster.AbstractOpenCloseTableClusterStateTaskExecutor;
-import io.crate.metadata.cluster.DDLClusterStateTaskExecutor;
 import io.crate.metadata.cluster.OpenTableClusterStateTaskExecutor;
 import io.crate.metadata.doc.DocTableInfo;
-import io.crate.metadata.table.Operation;
-import io.crate.metadata.table.SchemaInfo;
-import io.crate.replication.logical.exceptions.SubscriptionAlreadyExistsException;
 import io.crate.replication.logical.exceptions.SubscriptionUnknownException;
-import io.crate.replication.logical.metadata.Subscription;
 import io.crate.replication.logical.metadata.SubscriptionsMetadata;
-import io.crate.user.WriteUserResponse;
 import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.action.support.master.AcknowledgedResponse;
 import org.elasticsearch.action.support.master.TransportMasterNodeAction;
 import org.elasticsearch.cluster.*;
-import org.elasticsearch.cluster.ack.ClusterStateUpdateResponse;
 import org.elasticsearch.cluster.block.ClusterBlockException;
 import org.elasticsearch.cluster.block.ClusterBlockLevel;
 import org.elasticsearch.cluster.metadata.IndexMetadata;
 import org.elasticsearch.cluster.metadata.IndexNameExpressionResolver;
-import org.elasticsearch.cluster.metadata.IndexTemplateMetadata;
 import org.elasticsearch.cluster.metadata.Metadata;
-import org.elasticsearch.cluster.node.DiscoveryNode;
 import org.elasticsearch.cluster.service.ClusterService;
 import org.elasticsearch.common.Priority;
 import org.elasticsearch.common.collect.ImmutableOpenMap;
@@ -58,6 +46,7 @@ import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.common.inject.Singleton;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.settings.Settings;
+import org.elasticsearch.index.Index;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.transport.TransportService;
 
@@ -65,9 +54,11 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 import static io.crate.replication.logical.LogicalReplicationSettings.REPLICATION_SUBSCRIPTION_NAME;
@@ -82,13 +73,16 @@ public class TransportDropSubscriptionAction extends TransportMasterNodeAction<D
 
     private final Schemas schemas;
 
+    private final TransportCloseTable transportCloseTable;
+
     @Inject
     public TransportDropSubscriptionAction(TransportService transportService,
                                            ClusterService clusterService,
                                            ThreadPool threadPool,
                                            IndexNameExpressionResolver indexNameExpressionResolver,
                                            OpenTableClusterStateTaskExecutor openTableClusterStateTaskExecutor,
-                                           Schemas schemas) {
+                                           Schemas schemas,
+                                           TransportCloseTable transportCloseTable) {
         super(ACTION_NAME,
             transportService,
             clusterService,
@@ -97,6 +91,7 @@ public class TransportDropSubscriptionAction extends TransportMasterNodeAction<D
             indexNameExpressionResolver);
         this.openTableClusterStateTaskExecutor = openTableClusterStateTaskExecutor;
         this.schemas = schemas;
+        this.transportCloseTable = transportCloseTable;
     }
 
 
@@ -106,8 +101,8 @@ public class TransportDropSubscriptionAction extends TransportMasterNodeAction<D
     }
 
     @Override
-    protected WriteUserResponse read(StreamInput in) throws IOException {
-        return new WriteUserResponse(in);
+    protected AcknowledgedResponse read(StreamInput in) throws IOException {
+        return new AcknowledgedResponse(in);
     }
 
     @Override
@@ -115,9 +110,9 @@ public class TransportDropSubscriptionAction extends TransportMasterNodeAction<D
         List<IndexMetadata> subscriptionIndices = getSubscriptionIndices(request.name(), state.metadata().indices());
         List<OpenCloseTable> openCloseTables = getSubscriptionTables(request.name(), schemas);
 
-        submitCloseSubscriptionsTablesTask(openCloseTables)
-            .thenCompose(res -> submitDropSubscriptionTask(request.name(), request.ifExists(), subscriptionIndices))
-            .thenCompose(res -> submitOpenSubscriptionsTablesTask(openCloseTables, subscriptionIndices))
+        submitCloseSubscriptionsTablesTask(request, openCloseTables)
+            .thenCompose(ignore -> submitDropSubscriptionTask(request, listener, subscriptionIndices))
+            .thenCompose(ignore -> submitOpenSubscriptionsTablesTask(request, listener, openCloseTables, subscriptionIndices))
             .whenComplete(
                 (ignore, err) -> {
                     if (err == null) {
@@ -139,78 +134,68 @@ public class TransportDropSubscriptionAction extends TransportMasterNodeAction<D
      * Closes tables and consequently closes all shards of the index
      * which, in turn, stops trackers and removes retention lease on the remote cluster.
      */
-    private CompletableFuture<Void> submitCloseSubscriptionsTablesTask(List<OpenCloseTable> openCloseTables) {
-        var future = new CompletableFuture<Void>();
-
-        future.complete(null);
-
-        /* TODO: Uncomment code below once TransportCloseTable is adapted to handle multiple tables.
-
-        clusterService.submitStateUpdateTask(
-            "drop-sub-close-tables",
-            new ClusterStateUpdateTask() {
-                @Override
-                public ClusterState execute(ClusterState currentState) {
-                    // extract relevant logic from AddCloseBlocksTask(listener, request)),
-                    // make it accept multiple tables - update builders inside loop
-                    // then call that code here and in TransportCloseTable's execute call extracted method like f(List.of(request.relation))
-                }
-
-                @Override
-                public void onFailure(String source, Exception e) {
-                    logger.error("Couldn't execute task 'drop-sub-close-tables'. Please run command DROP SUBSCRIPTION again.");
-                    future.completeExceptionally(e);
-                }
-
-                @Override
-                public void clusterStateProcessed(String source, ClusterState oldState, ClusterState newState) {
-                    future.complete(null);
-                }
-            }
-        );
-        */
-        return future;
+    private CompletableFuture<Void> submitCloseSubscriptionsTablesTask(DropSubscriptionRequest request,
+                                                                       List<OpenCloseTable> openCloseTables) {
+        FutureActionListener<AcknowledgedResponse, Void> adapter = new FutureActionListener<>(r -> null);
+        transportCloseTable.closeTables(adapter, openCloseTables, request.ackTimeout());
+        return adapter;
     }
 
     /**
      * Removes subscription from the cluster metadata and
      * removes setting LogicalReplicationSettings.REPLICATION_SUBSCRIPTION_NAME from each relevant for subscription index.
      */
-    private CompletableFuture<Void> submitDropSubscriptionTask(String subscriptionName,
-                                                               boolean ifExists,
+    private CompletableFuture<Void> submitDropSubscriptionTask(DropSubscriptionRequest request,
+                                                               ActionListener listener,
                                                                List<IndexMetadata> subscriptionIndices) {
         var future = new CompletableFuture<Void>();
 
-        // Check if we're still the elected master before sending second update task
-        if (!clusterService.state().nodes().isLocalNodeElectedMaster()) {
-            logger.error("Couldn't execute task 'drop-sub-remove-setting-and-metadata'. Please run command DROP SUBSCRIPTION again.");
-            future.completeExceptionally(new IllegalStateException("Master was re-elected, cannot execute 'drop-sub-remove-setting-and-metadata'"));
-        }
-
         clusterService.submitStateUpdateTask(
             "drop-sub-remove-setting-and-metadata",
-            new ClusterStateUpdateTask() {
+            // Highest priority to reduce probability of master re-election and necessity to re-run some commands.
+            new AckedClusterStateUpdateTask(Priority.IMMEDIATE, request, listener) {
+
                 @Override
                 public ClusterState execute(ClusterState currentState) {
+
+                    // Check if we're still the elected master before sending second update task
+                    if (!clusterService.state().nodes().isLocalNodeElectedMaster()) {
+                        logger.error("Couldn't execute task 'drop-sub-remove-setting-and-metadata'. Please run command DROP SUBSCRIPTION again.");
+                        future.completeExceptionally(new IllegalStateException("Master was re-elected, cannot execute 'drop-sub-remove-setting-and-metadata'"));
+                    }
+
                     Metadata currentMetadata = currentState.metadata();
                     Metadata.Builder mdBuilder = Metadata.builder(currentMetadata);
 
                     SubscriptionsMetadata oldMetadata = (SubscriptionsMetadata) mdBuilder.getCustom(SubscriptionsMetadata.TYPE);
-                    if (oldMetadata != null && oldMetadata.subscription().containsKey(subscriptionName)) {
+                    var subscription = oldMetadata.subscription().get(request.name());
+                    if (oldMetadata != null && subscription != null) {
 
                         SubscriptionsMetadata newMetadata = SubscriptionsMetadata.newInstance(oldMetadata);
-                        newMetadata.subscription().remove(subscriptionName);
+                        newMetadata.subscription().remove(request.name());
                         assert !newMetadata.equals(oldMetadata) : "must not be equal to guarantee the cluster change action";
                         mdBuilder.putCustom(SubscriptionsMetadata.TYPE, newMetadata);
 
-                        // mdBuilder is mutated accordingly.
+                        // mdBuilder and subscriptionIndices is mutated accordingly.
                         removeSubscriptionSetting(subscriptionIndices, mdBuilder);
 
                         return ClusterState.builder(currentState).metadata(mdBuilder).build();
-                    } else if (ifExists == false) {
-                        throw new SubscriptionUnknownException(subscriptionName);
+                    } else if (request.ifExists() == false) {
+                        throw new SubscriptionUnknownException(request.name());
                     }
                     return currentState;
+                }
+
+                @Override
+                protected AcknowledgedResponse newResponse(boolean acknowledged) {
+                    // Implemented since it's obligatory but not used as both consumers of this method (onAckTimeout and onAllNodesAcked) are overwritten)
+                    return new AcknowledgedResponse(acknowledged);
+                }
+
+                @Override
+                public void onAckTimeout() {
+                    logger.error("Couldn't execute task 'drop-sub-remove-setting-and-metadata'. Please run command DROP SUBSCRIPTION again.");
+                    future.completeExceptionally(new TimeoutException("Task 'drop-sub-remove-setting-and-metadata' timeout out"));
                 }
 
                 @Override
@@ -220,11 +205,15 @@ public class TransportDropSubscriptionAction extends TransportMasterNodeAction<D
                 }
 
                 @Override
-                public void clusterStateProcessed(String source, ClusterState oldState, ClusterState newState) {
-                    future.complete(null);
+                public void onAllNodesAcked(@Nullable Exception e) {
+                    if (e == null) {
+                        future.complete(null);
+                    } else {
+                        logger.error("Couldn't execute task 'drop-sub-remove-setting-and-metadata'. Please run command DROP SUBSCRIPTION again.");
+                        future.completeExceptionally(e);
+                    }
                 }
-            }
-        );
+            });
         return future;
     }
 
@@ -232,36 +221,59 @@ public class TransportDropSubscriptionAction extends TransportMasterNodeAction<D
      * Opens tables after removing replication setting
      * and consequently updates DocTableInfo-s with the normal engine and makes tables writable.
      */
-    private CompletableFuture<Void> submitOpenSubscriptionsTablesTask(List<OpenCloseTable> openCloseTables, List<IndexMetadata> subscriptionIndices) {
+    private CompletableFuture<Void> submitOpenSubscriptionsTablesTask(DropSubscriptionRequest request,
+                                                                      ActionListener listener,
+                                                                      List<OpenCloseTable> openCloseTables,
+                                                                      List<IndexMetadata> subscriptionIndices) {
         var future = new CompletableFuture<Void>();
-
-        // Check if we're still the elected master before sending third update task
-        if (!clusterService.state().nodes().isLocalNodeElectedMaster()) {
-            logger.error("Couldn't execute task 'drop-sub-close-tables'. Please run command DROP SUBSCRIPTION again.");
-            future.completeExceptionally(new IllegalStateException("Master was re-elected, cannot execute 'drop-sub-close-tables'"));
-        }
-
 
         clusterService.submitStateUpdateTask(
             "drop-sub-open-tables",
-            new ClusterStateUpdateTask() {
+            // Highest priority to reduce probability of master re-election and necessity to re-run some commands.
+            new AckedClusterStateUpdateTask(Priority.IMMEDIATE, request, listener) {
+
+
                 @Override
                 public ClusterState execute(ClusterState currentState) {
+
+                    // Check if we're still the elected master before sending third update task
+                    if (!clusterService.state().nodes().isLocalNodeElectedMaster()) {
+                        logger.error("Couldn't execute task 'drop-sub-open-tables'. Please run command ALTER TABLE [table] OPEN.");
+                        future.completeExceptionally(new IllegalStateException("Master was re-elected, cannot execute 'drop-sub-open-tables'"));
+                    }
+
                     return openTableClusterStateTaskExecutor.openTables(openCloseTables, subscriptionIndices, currentState);
                 }
 
                 @Override
+                protected AcknowledgedResponse newResponse(boolean acknowledged) {
+                    // Implemented since it's obligatory but not used as both consumers of this method (onAckTimeout and onAllNodesAcked) are overwritten)
+                    return new AcknowledgedResponse(acknowledged);
+                }
+
+                @Override
+                public void onAckTimeout() {
+                    logger.error("Couldn't execute task 'drop-sub-open-tables'. Please run command ALTER TABLE [table] OPEN.");
+                    future.completeExceptionally(new TimeoutException("Task 'drop-sub-open-tables' timeout out"));
+                }
+
+                @Override
                 public void onFailure(String source, Exception e) {
-                    logger.error("Couldn't execute task 'drop-sub-open-tables'. Please run command DROP SUBSCRIPTION again.");
+                    logger.error("Couldn't execute task 'drop-sub-open-tables'. Please run command ALTER TABLE [table] OPEN.");
                     future.completeExceptionally(e);
                 }
 
                 @Override
-                public void clusterStateProcessed(String source, ClusterState oldState, ClusterState newState) {
-                    future.complete(null);
+                public void onAllNodesAcked(@Nullable Exception e) {
+                    if (e == null) {
+                        future.complete(null);
+                    } else {
+                        logger.error("Couldn't execute task 'drop-sub-open-tables'. Please run command ALTER TABLE [table] OPEN.");
+                        future.completeExceptionally(e);
+                    }
                 }
-            }
-        );
+            });
+
         return future;
     }
 

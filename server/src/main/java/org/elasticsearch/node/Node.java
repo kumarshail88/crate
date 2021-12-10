@@ -981,8 +981,6 @@ public class Node implements Closeable {
         toClose.add(injector.getInstance(RemoteClusters.class));
         toClose.add(() -> stopWatch.stop().start("logical_replication_service"));
         toClose.add(injector.getInstance(LogicalReplicationService.class));
-        toClose.add(() -> stopWatch.stop().start("shard_replication_service"));
-        toClose.add(injector.getInstance(ShardReplicationService.class));
 
         toClose.add(() -> stopWatch.stop().start("gateway_meta_state"));
         toClose.add(injector.getInstance(GatewayMetaState.class));

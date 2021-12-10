@@ -462,12 +462,14 @@ public class LogicalReplicationITest extends LogicalReplicationITestCase {
             "The relation \"doc.t2\" doesn't support or allow INSERT operations."
         );
 
-        executeOnSubscriber("ALTER TABLE doc.t1 CLOSE"); // TODO - make it part of DROP SUB
-        executeOnSubscriber("ALTER TABLE doc.t2 CLOSE"); // TODO - make it part of DROP SUB
+       // executeOnSubscriber("ALTER TABLE doc.t1 CLOSE"); // TODO - make it part of DROP SUB
+      //  executeOnSubscriber("ALTER TABLE doc.t2 CLOSE"); // TODO - make it part of DROP SUB
         executeOnSubscriber("DROP SUBSCRIPTION sub1 ");
        //  executeOnSubscriber("ALTER TABLE doc.t1 OPEN");
      //    executeOnSubscriber("ALTER TABLE doc.t2 OPEN");
         var response = executeOnSubscriber("INSERT INTO doc.t1 (id) VALUES(3)");
+        assertThat(response.rowCount(), is(1L));
+        response = executeOnSubscriber("INSERT INTO doc.t2 (id) VALUES(3)");
         assertThat(response.rowCount(), is(1L));
     }
 }
