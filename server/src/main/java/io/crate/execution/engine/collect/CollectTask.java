@@ -150,6 +150,7 @@ public class CollectTask implements Task {
             batchIterator.whenComplete((it, err) -> {
                 if (err == null) {
                     it.kill(throwable);
+                    consumer.accept(null, throwable);
                 } // else: Consumer must have received a failure already
             });
         }
