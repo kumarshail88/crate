@@ -987,7 +987,7 @@ public class CopyIntegrationTest extends SQLHttpIntegrationTest {
                 nodeIds.size());
             URI passingUri = generateURIToBeConsumedByProvidedReaderNumber(
                 target,
-                Arrays.asList("{\"a\":123456789},".repeat(30000).split(",")),
+                Arrays.asList("{\"a\":123456789},".repeat(20000).split(",")),
                 (readerNumber+1) % nodeIds.size(), // even with #nodes > 2, it does not matter who gets the passing uri.
                 nodeIds.size());
             if (failingUri == null || passingUri == null) {
@@ -1001,8 +1001,7 @@ public class CopyIntegrationTest extends SQLHttpIntegrationTest {
             String exceptionMessage = null;
             try {
                 execute("copy tbl from ? with (shared=true, fail_fast=true, bulk_size=2) return summary",
-                        new Object[]{target.toUri().toString() + "*"},
-                        TimeValue.timeValueSeconds(30));
+                        new Object[]{target.toUri().toString() + "*"});
                 fail();
             } catch (Exception e) {
                 exceptionMessage = e.getMessage();
@@ -1026,9 +1025,9 @@ public class CopyIntegrationTest extends SQLHttpIntegrationTest {
             // if the count is not less than 10000L, it is unclear whether fail_fast had any effect.
             execute("select count(*) from tbl where a = '123456789'");
             count = (long) response.rows()[0][0];
-            assertFalse((count - accumulatePassingUriCount) == 30000L);
-            assertFalse((count - accumulatePassingUriCount) > 30000L);
-            assertTrue((count - accumulatePassingUriCount) < 30000L);
+            assertFalse((count - accumulatePassingUriCount) == 20000L);
+            assertFalse((count - accumulatePassingUriCount) > 20000L);
+            assertTrue((count - accumulatePassingUriCount) < 20000L);
 
             accumulatePassingUriCount += count; // accumulate the counts to prevent deleting/dropping tables and re-creating.
 
