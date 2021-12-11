@@ -23,6 +23,7 @@ package io.crate.integrationtests;
 
 import com.carrotsearch.randomizedtesting.LifecycleScope;
 import com.carrotsearch.randomizedtesting.annotations.Repeat;
+import io.crate.common.unit.TimeValue;
 import io.crate.execution.engine.collect.files.FileReadingIterator;
 import io.crate.execution.engine.collect.sources.FileCollectSource;
 import io.crate.testing.SQLResponse;
@@ -960,7 +961,7 @@ public class CopyIntegrationTest extends SQLHttpIntegrationTest {
     @Repeat(iterations = 200)
     @Test
     public void test_copy_from_with_fail_fast_property_can_kill_all_nodes_with_failure_from_single_node() throws Exception {
-
+        logger.info("--- new iteration");
         execute("create table tbl (a int)");
         ensureGreen();
         execute("select distinct node['name'], node['id'] from sys.shards where table_name = 'tbl'");
@@ -1000,12 +1001,13 @@ public class CopyIntegrationTest extends SQLHttpIntegrationTest {
             String exceptionMessage = null;
             try {
                 execute("copy tbl from ? with (shared=true, fail_fast=true, bulk_size=2) return summary",
-                        new Object[]{target.toUri().toString() + "*"});
+                        new Object[]{target.toUri().toString() + "*"},
+                        TimeValue.timeValueSeconds(30));
                 fail();
             } catch (Exception e) {
                 exceptionMessage = e.getMessage();
                 if (exceptionMessage == null || exceptionMessage.contains("failed to parse field") == false) {
-                    fail();
+                    fail("Exception message:" + exceptionMessage);
                 }
             }
 
