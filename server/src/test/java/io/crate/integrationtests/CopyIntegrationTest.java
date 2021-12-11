@@ -984,7 +984,7 @@ public class CopyIntegrationTest extends SQLHttpIntegrationTest {
                 nodeIds.size());
             URI passingUri = generateURIToBeConsumedByProvidedReaderNumber(
                 target,
-                Arrays.asList("{\"a\":123456789},".repeat(10000).split(",")),
+                Arrays.asList("{\"a\":123456789},".repeat(30000).split(",")),
                 (readerNumber+1) % nodeIds.size(), // even with #nodes > 2, it does not matter who gets the passing uri.
                 nodeIds.size());
             if (failingUri == null || passingUri == null) {
@@ -1016,7 +1016,7 @@ public class CopyIntegrationTest extends SQLHttpIntegrationTest {
 
             // if the count is not less than 10000L, it is unclear whether fail_fast had any effect.
             execute("select count(*) from tbl where a = '123456789'");
-            assertTrue((long) response.rows()[0][0] < 10000L);
+            assertTrue((long) response.rows()[0][0] < 30000L);
 
             // parse the exception message to retrieve the nodeName that observed the URI error and trigger the kill signals
             int begin = exceptionMessage.indexOf("NODE: ");
