@@ -957,7 +957,7 @@ public class CopyIntegrationTest extends SQLHttpIntegrationTest {
         return null;
     }
 
-    @Repeat(iterations = 100)
+    @Repeat(iterations = 200)
     @Test
     public void test_copy_from_with_fail_fast_property_can_kill_all_nodes_with_failure_from_single_node() throws Exception {
 
@@ -971,6 +971,8 @@ public class CopyIntegrationTest extends SQLHttpIntegrationTest {
             nodeIds.add((String) response.rows()[i][1]);
         }
 
+        long accumulateFailingUriCount = 0;
+        long accumulatePassingUriCount = 0;
         for (int i = 0; i < nodeIds.size(); i++) {
 
             // each node is assigned a readerNumber and based on URI.hashCode(), readerNumber, numReaders, the URIs will be assigned to a particular node to be consumed.
@@ -1010,13 +1012,23 @@ public class CopyIntegrationTest extends SQLHttpIntegrationTest {
             refresh();
             waitUntilThreadPoolTasksFinished(ThreadPool.Names.SEARCH);
 
+            long count = 0;
+
             // bulk_size is 2 and with the failing URI containing 1 passing and 1 failing record, the 1 passing record must be inserted
             execute("select count(*) from tbl where a = '987654321'");
-            assertEquals(1L, (long) response.rows()[0][0]);
+            count = (long) response.rows()[0][0];
+            assertEquals(1L, (count - accumulateFailingUriCount));
+
+            accumulateFailingUriCount += count; // accumulate the counts to prevent deleting/dropping tables and re-creating.
 
             // if the count is not less than 10000L, it is unclear whether fail_fast had any effect.
             execute("select count(*) from tbl where a = '123456789'");
-            assertTrue((long) response.rows()[0][0] < 30000L);
+            count = (long) response.rows()[0][0];
+            assertFalse((count - accumulatePassingUriCount) == 30000L);
+            assertFalse((count - accumulatePassingUriCount) > 30000L);
+            assertTrue((count - accumulatePassingUriCount) < 30000L);
+
+            accumulatePassingUriCount += count; // accumulate the counts to prevent deleting/dropping tables and re-creating.
 
             // parse the exception message to retrieve the nodeName that observed the URI error and trigger the kill signals
             int begin = exceptionMessage.indexOf("NODE: ");
@@ -1034,9 +1046,6 @@ public class CopyIntegrationTest extends SQLHttpIntegrationTest {
                 // the purpose of this is to test that fail_fast can be triggered from handlerNode as well as non-handlerNodes
                 // since the handleNode will execute a CollectTask and a DownstreamRXTask whereas other data nodes will execute a CollectTask only
             }
-
-            execute("delete from tbl");
-            refresh();
         }
     }
 
