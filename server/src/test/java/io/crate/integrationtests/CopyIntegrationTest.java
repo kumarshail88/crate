@@ -961,7 +961,6 @@ public class CopyIntegrationTest extends SQLHttpIntegrationTest {
     }
 
     @Timeout(value = 2, unit = MINUTES)
-    @Repeat(iterations = 200)
     @Test
     public void test_copy_from_with_fail_fast_property_can_kill_all_nodes_with_failure_from_single_node() throws Exception {
         logger.info("--- new iteration");
@@ -974,11 +973,13 @@ public class CopyIntegrationTest extends SQLHttpIntegrationTest {
             nodeNames.add((String) response.rows()[i][0]);
             nodeIds.add((String) response.rows()[i][1]);
         }
+        logger.info(nodeNames);
+        logger.info(nodeIds);
 
         long accumulateFailingUriCount = 0;
         long accumulatePassingUriCount = 0;
         for (int i = 0; i < nodeIds.size(); i++) {
-
+            logger.info("now here ---");
             // each node is assigned a readerNumber and based on URI.hashCode(), readerNumber, numReaders, the URIs will be assigned to a particular node to be consumed.
             int readerNumber = FileCollectSource.getReaderNumber(nodeIds, nodeIds.get(i));
 

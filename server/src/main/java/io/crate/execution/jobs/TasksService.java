@@ -154,7 +154,8 @@ public class TasksService extends AbstractLifecycleComponent {
 
         TaskCallback taskCallback = new TaskCallback(jobId);
         newRootTask.completionFuture().whenComplete(taskCallback);
-
+        LOGGER.info("Task created for job {},  activeTasks: {}",
+                     jobId, activeTasks.size());
         RootTask existing = activeTasks.putIfAbsent(jobId, newRootTask);
         if (existing != null) {
             throw new IllegalArgumentException(
@@ -256,6 +257,8 @@ public class TasksService extends AbstractLifecycleComponent {
 
         @Override
         public void accept(Void aVoid, Throwable throwable) {
+            LOGGER.info("RootTask removed from active tasks: jobId={} remainingTasks={} failure={}",
+                         jobId, activeTasks.size(), throwable);
             activeTasks.remove(jobId);
             if (throwable != null) {
                 recentlyFailed.put(jobId, failedSentinel);
