@@ -32,6 +32,7 @@ import org.elasticsearch.test.ESIntegTestCase;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.rules.TemporaryFolder;
 
 import java.io.File;
@@ -61,6 +62,7 @@ import static io.crate.testing.Asserts.assertThrowsMatches;
 import static io.crate.testing.SQLErrorMatcher.isSQLError;
 import static io.crate.testing.TestingHelpers.printedTable;
 import static io.netty.handler.codec.http.HttpResponseStatus.BAD_REQUEST;
+import static java.util.concurrent.TimeUnit.MINUTES;
 import static org.hamcrest.Matchers.both;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
@@ -958,6 +960,7 @@ public class CopyIntegrationTest extends SQLHttpIntegrationTest {
         return null;
     }
 
+    @Timeout(value = 2, unit = MINUTES)
     @Repeat(iterations = 200)
     @Test
     public void test_copy_from_with_fail_fast_property_can_kill_all_nodes_with_failure_from_single_node() throws Exception {
@@ -1001,7 +1004,8 @@ public class CopyIntegrationTest extends SQLHttpIntegrationTest {
             String exceptionMessage = null;
             try {
                 execute("copy tbl from ? with (shared=true, fail_fast=true, bulk_size=2) return summary",
-                        new Object[]{target.toUri().toString() + "*"});
+                        new Object[]{target.toUri().toString() + "*"},
+                        TimeValue.timeValueMinutes(2));
                 fail();
             } catch (Exception e) {
                 exceptionMessage = e.getMessage();
