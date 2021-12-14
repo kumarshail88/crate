@@ -961,6 +961,7 @@ public class CopyIntegrationTest extends SQLHttpIntegrationTest {
     }
 
     @Timeout(value = 2, unit = MINUTES)
+    @Repeat(iterations = 200)
     @Test
     public void test_copy_from_with_fail_fast_property_can_kill_all_nodes_with_failure_from_single_node() throws Exception {
         logger.info("--- new iteration");
