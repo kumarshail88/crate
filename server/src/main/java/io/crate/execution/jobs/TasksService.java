@@ -275,7 +275,7 @@ public class TasksService extends AbstractLifecycleComponent {
         if (LOGGER.isErrorEnabled()) {
             String localNodeId = clusterService.localNode().getId();
             for (var entry : activeTasks.entrySet()) {
-                LOGGER.error("Active task node={} jobId={}, task={}", localNodeId, entry.getKey(), entry.getValue());
+                LOGGER.info("Active task node={} jobId={}, task={}", localNodeId, entry.getKey(), entry.getValue());
             }
         }
     }

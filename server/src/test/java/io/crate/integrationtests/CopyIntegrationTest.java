@@ -26,6 +26,7 @@ import com.carrotsearch.randomizedtesting.annotations.Repeat;
 import io.crate.common.unit.TimeValue;
 import io.crate.execution.engine.collect.files.FileReadingIterator;
 import io.crate.execution.engine.collect.sources.FileCollectSource;
+import io.crate.execution.jobs.TasksService;
 import io.crate.testing.SQLResponse;
 import io.crate.testing.UseJdbc;
 import org.elasticsearch.test.ESIntegTestCase;
@@ -1018,6 +1019,10 @@ public class CopyIntegrationTest extends SQLHttpIntegrationTest {
 
             refresh();
             waitUntilThreadPoolTasksFinished(ThreadPool.Names.SEARCH);
+            for (var tasksService : internalCluster().getInstances(TasksService.class)) {
+                logger.info("logging activeTasks!!");
+                tasksService.logActiveTasksToError();
+            }
 
             long count = 0;
 

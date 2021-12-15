@@ -221,10 +221,9 @@ public class RootTask implements CompletionListenable<Void> {
      * @return the number of tasks on which kill was called
      */
     public long kill(@Nullable String reason) {
-        logger.info("killed,", jobId);
         int numKilled = 0;
         if (!closed.getAndSet(true)) {
-            logger.trace("kill called on Task {}", jobId);
+            logger.info("kill called on Task {}", jobId);
             if (numActiveTasks.get() == 0) {
                 finish();
             } else {
@@ -323,10 +322,10 @@ public class RootTask implements CompletionListenable<Void> {
          * @return true if removed task was the last task, otherwise false
          */
         private boolean finishIfNeeded() {
-            if (traceEnabled) {
-                Task task = getTask(id);
-                logger.trace("Task completed id={} task={} error={}", id, task, failure);
-            }
+
+            Task task = getTask(id);
+            logger.info("Task completed id={} task={} error={}", id, task, failure);
+
             if (numActiveTasks.decrementAndGet() == 0) {
                 finish();
                 return true;
@@ -351,9 +350,9 @@ public class RootTask implements CompletionListenable<Void> {
                     if (task.id() == id || task.completionFuture().isDone()) {
                         continue;
                     }
-                    if (traceEnabled) {
-                        logger.trace("Task id={} failed, killing other task={}", id, task);
-                    }
+
+                    logger.info("Task id={} failed, killing other task={}", id, task);
+
                     task.kill(t);
                 }
             }
