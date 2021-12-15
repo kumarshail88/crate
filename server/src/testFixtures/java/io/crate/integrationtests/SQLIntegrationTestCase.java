@@ -386,8 +386,7 @@ public abstract class SQLIntegrationTestCase extends ESIntegTestCase {
             userLookup = userName -> User.CRATE_USER;
         }
         try (Session session = sqlOperations.createSession(schema, userLookup.findUser("crate"))) {
-            response = SQLTransportExecutor.execute(
-                stmt, null, session).actionGet(SQLTransportExecutor.REQUEST_TIMEOUT);
+            sqlExecutor.exec(stmt, session);
         }
         return response;
     }
@@ -590,8 +589,7 @@ public abstract class SQLIntegrationTestCase extends ESIntegTestCase {
      * @return the SQLResponse
      */
     public SQLResponse execute(String stmt, Object[] args, Session session) {
-        SQLResponse response = SQLTransportExecutor.execute(stmt, args, session)
-            .actionGet(SQLTransportExecutor.REQUEST_TIMEOUT);
+        var response = sqlExecutor.exec(stmt, args, session);
         this.response = response;
         return response;
     }
@@ -603,7 +601,7 @@ public abstract class SQLIntegrationTestCase extends ESIntegTestCase {
     public SQLResponse execute(String stmt, Object[] args, String node, TimeValue timeout) {
         SQLOperations sqlOperations = internalCluster().getInstance(SQLOperations.class, node);
         try (Session session = sqlOperations.createSession(sqlExecutor.getCurrentSchema(), User.CRATE_USER)) {
-            SQLResponse response = SQLTransportExecutor.execute(stmt, args, session).actionGet(timeout);
+            SQLResponse response = sqlExecutor.exec(stmt, args, session);
             this.response = response;
             return response;
         }
